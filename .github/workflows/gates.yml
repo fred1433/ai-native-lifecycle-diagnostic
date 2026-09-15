@@ -125,10 +125,8 @@ jobs:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('harness/ArchitectureTests/ArchitectureTests.csproj', 'policy/work-classes.json') }}
 
-      - name: apply the change to the platform
-        run: |
-          git -C upstream apply --verbose --whitespace=nowarn "${GITHUB_WORKSPACE}/${{ matrix.ticket }}/change.patch"
-          git -C upstream --no-pager diff --stat
+      - name: apply the tickets up to this one
+        run: bash scripts/apply_tickets.sh "${{ matrix.ticket }}"
 
       - name: build
         run: dotnet build harness/ArchitectureTests/ArchitectureTests.csproj -c Release
