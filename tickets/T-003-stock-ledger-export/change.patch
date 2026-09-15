@@ -1,0 +1,251 @@
+diff --git a/src/Libraries/Nop.Services/ExportImport/IStockLedgerExportService.cs b/src/Libraries/Nop.Services/ExportImport/IStockLedgerExportService.cs
+new file mode 100644
+index 0000000..183f2ad
+--- /dev/null
++++ b/src/Libraries/Nop.Services/ExportImport/IStockLedgerExportService.cs
+@@ -0,0 +1,20 @@
++﻿using Nop.Core.Domain.Catalog;
++
++namespace Nop.Services.ExportImport;
++
++/// <summary>
++/// Stock ledger export service interface
++/// </summary>
++public partial interface IStockLedgerExportService
++{
++    /// <summary>
++    /// Export the stock movements of a product as the payload the accounting system expects
++    /// </summary>
++    /// <param name="product">Product</param>
++    /// <param name="warehouseId">Warehouse identifier; pass 0 for all warehouses</param>
++    /// <returns>
++    /// A task that represents the asynchronous operation
++    /// The task result contains the payload
++    /// </returns>
++    Task<string> ExportStockLedgerAsync(Product product, int warehouseId = 0);
++}
+diff --git a/src/Libraries/Nop.Services/ExportImport/StockLedgerExportService.cs b/src/Libraries/Nop.Services/ExportImport/StockLedgerExportService.cs
+new file mode 100644
+index 0000000..80da74e
+--- /dev/null
++++ b/src/Libraries/Nop.Services/ExportImport/StockLedgerExportService.cs
+@@ -0,0 +1,126 @@
++﻿using System.Globalization;
++using System.Text.Json;
++using Nop.Core.Domain.Catalog;
++using Nop.Services.Catalog;
++
++namespace Nop.Services.ExportImport;
++
++/// <summary>
++/// Stock ledger export service
++/// </summary>
++public partial class StockLedgerExportService : IStockLedgerExportService
++{
++    #region Constants
++
++    /// <summary>
++    /// The shape of the payload. The other side keys off this, so it changes when the shape changes.
++    /// </summary>
++    public const string PAYLOAD_SCHEMA = "stock-ledger/v1";
++
++    #endregion
++
++    #region Fields
++
++    protected static readonly JsonSerializerOptions _serializerOptions = new()
++    {
++        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
++        WriteIndented = false
++    };
++
++    protected readonly IProductService _productService;
++
++    #endregion
++
++    #region Ctor
++
++    public StockLedgerExportService(IProductService productService)
++    {
++        _productService = productService;
++    }
++
++    #endregion
++
++    #region Methods
++
++    /// <summary>
++    /// Export the stock movements of a product as the payload the accounting system expects
++    /// </summary>
++    public virtual async Task<string> ExportStockLedgerAsync(Product product, int warehouseId = 0)
++    {
++        ArgumentNullException.ThrowIfNull(product);
++
++        var movements = await _productService.GetStockQuantityHistoryAsync(product, warehouseId);
++
++        return BuildPayload(product.Id, product.Sku, movements);
++    }
++
++    /// <summary>
++    /// Build the payload from movements that have already been read.
++    /// </summary>
++    /// <remarks>
++    /// This is deliberately a pure function. What crosses the boundary to another company's system
++    /// has to be pinned by a test, and a test that needs a container and a database to assert one
++    /// payload is a test that gets deleted the first week it is inconvenient.
++    /// </remarks>
++    public static string BuildPayload(int productId, string sku, IList<StockQuantityHistory> movements)
++    {
++        ArgumentNullException.ThrowIfNull(movements);
++
++        var payload = new StockLedgerPayload
++        {
++            Schema = PAYLOAD_SCHEMA,
++            ProductId = productId,
++            Sku = sku,
++            Movements = movements
++                .OrderBy(movement => movement.CreatedOnUtc)
++                .ThenBy(movement => movement.Id)
++                .Select(movement => new StockLedgerMovement
++                {
++                    //the column is UTC by convention, but a row read back from the database carries no
++                    //kind at all. Without this the same movement is sent with a Z one day and without
++                    //it the next, and the other side reads the second one as local time.
++                    OccurredOnUtc = DateTime.SpecifyKind(movement.CreatedOnUtc, DateTimeKind.Utc)
++                        .ToString("O", CultureInfo.InvariantCulture),
++                    WarehouseId = movement.WarehouseId,
++                    QuantityAdjustment = movement.QuantityAdjustment,
++                    StockQuantityAfter = movement.StockQuantity,
++                    Reason = movement.Message
++                })
++                .ToList()
++        };
++
++        return JsonSerializer.Serialize(payload, _serializerOptions);
++    }
++
++    #endregion
++}
++
++/// <summary>
++/// Represents the stock ledger payload
++/// </summary>
++public partial class StockLedgerPayload
++{
++    public string Schema { get; set; }
++
++    public int ProductId { get; set; }
++
++    public string Sku { get; set; }
++
++    public IList<StockLedgerMovement> Movements { get; set; } = new List<StockLedgerMovement>();
++}
++
++/// <summary>
++/// Represents one stock movement in the ledger payload
++/// </summary>
++public partial class StockLedgerMovement
++{
++    public string OccurredOnUtc { get; set; }
++
++    public int? WarehouseId { get; set; }
++
++    public int QuantityAdjustment { get; set; }
++
++    public int StockQuantityAfter { get; set; }
++
++    public string Reason { get; set; }
++}
+diff --git a/src/Tests/Nop.Tests/Nop.Services.Tests/ExportImport/StockLedgerExportServiceTests.cs b/src/Tests/Nop.Tests/Nop.Services.Tests/ExportImport/StockLedgerExportServiceTests.cs
+new file mode 100644
+index 0000000..ab60f82
+--- /dev/null
++++ b/src/Tests/Nop.Tests/Nop.Services.Tests/ExportImport/StockLedgerExportServiceTests.cs
+@@ -0,0 +1,87 @@
++﻿using FluentAssertions;
++using Nop.Core.Domain.Catalog;
++using Nop.Services.ExportImport;
++using NUnit.Framework;
++
++namespace Nop.Tests.Nop.Services.Tests.ExportImport;
++
++[TestFixture]
++public class StockLedgerExportServiceTests
++{
++    /// <summary>
++    /// What we send to the accounting system today, byte for byte. This fixture does not claim the
++    /// shape is right. It claims that changing it is a decision somebody makes on purpose, because
++    /// the party that would otherwise notice is on the other side of the integration, a day later.
++    /// </summary>
++    private const string EXPECTED_PAYLOAD =
++        "{\u0022schema\u0022:\u0022stock-ledger/v1\u0022,\u0022productId\u0022:42,\u0022sku\u0022:\u0022SKU-42\u0022,\u0022movements\u0022:[" +
++        "{\u0022occurredOnUtc\u0022:\u00222026-09-01T08:00:00.0000000Z\u0022,\u0022warehouseId\u0022:1,\u0022quantityAdjustment\u0022:-2,\u0022stockQuantityAfter\u0022:6,\u0022reason\u0022:\u0022Order 4100\u0022}," +
++        "{\u0022occurredOnUtc\u0022:\u00222026-09-02T09:30:00.0000000Z\u0022,\u0022warehouseId\u0022:null,\u0022quantityAdjustment\u0022:5,\u0022stockQuantityAfter\u0022:11,\u0022reason\u0022:\u0022Stock received\u0022}]}";
++
++    private static IList<StockQuantityHistory> TwoMovements()
++    {
++        return new List<StockQuantityHistory>
++        {
++            new()
++            {
++                Id = 2,
++                ProductId = 42,
++                WarehouseId = null,
++                QuantityAdjustment = 5,
++                StockQuantity = 11,
++                Message = "Stock received",
++                CreatedOnUtc = new DateTime(2026, 9, 2, 9, 30, 0, DateTimeKind.Utc)
++            },
++            new()
++            {
++                Id = 1,
++                ProductId = 42,
++                WarehouseId = 1,
++                QuantityAdjustment = -2,
++                StockQuantity = 6,
++                Message = "Order 4100",
++                CreatedOnUtc = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Utc)
++            }
++        };
++    }
++
++    [Test]
++    public void ThePayloadCrossingTheBoundaryIsPinned()
++    {
++        var payload = StockLedgerExportService.BuildPayload(42, "SKU-42", TwoMovements());
++
++        payload.Should().Be(EXPECTED_PAYLOAD);
++    }
++
++    [Test]
++    public void MovementsAreOrderedByWhenTheyHappenedNotByHowTheyArrived()
++    {
++        var payload = StockLedgerExportService.BuildPayload(42, "SKU-42", TwoMovements());
++
++        payload.IndexOf("2026-09-01", StringComparison.Ordinal)
++            .Should().BeLessThan(payload.IndexOf("2026-09-02", StringComparison.Ordinal));
++    }
++
++    [Test]
++    public void ATimestampReadBackFromTheDatabaseIsStillSentAsUtc()
++    {
++        //rows come back from the provider with no kind at all; the column is UTC by convention only
++        var movements = new List<StockQuantityHistory>
++        {
++            new()
++            {
++                Id = 1,
++                ProductId = 42,
++                WarehouseId = 1,
++                QuantityAdjustment = -1,
++                StockQuantity = 5,
++                Message = "Order 4101",
++                CreatedOnUtc = new DateTime(2026, 9, 1, 8, 0, 0, DateTimeKind.Unspecified)
++            }
++        };
++
++        var payload = StockLedgerExportService.BuildPayload(42, "SKU-42", movements);
++
++        payload.Should().Contain("2026-09-01T08:00:00.0000000Z");
++    }
++}
