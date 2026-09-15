@@ -1,0 +1,49 @@
+diff --git a/src/Presentation/Nop.Web/Areas/Admin/Factories/StockLedgerExportModelFactory.cs b/src/Presentation/Nop.Web/Areas/Admin/Factories/StockLedgerExportModelFactory.cs
+new file mode 100644
+index 0000000..cf8e276
+--- /dev/null
++++ b/src/Presentation/Nop.Web/Areas/Admin/Factories/StockLedgerExportModelFactory.cs
+@@ -0,0 +1,43 @@
++﻿using System.Text.Json;
++using Nop.Core.Domain.Catalog;
++using Nop.Data;
++
++namespace Nop.Web.Areas.Admin.Factories;
++
++/// <summary>
++/// Builds the stock ledger payload sent to the accounting system
++/// </summary>
++public partial class StockLedgerExportModelFactory
++{
++    #region Fields
++
++    protected readonly IRepository<StockQuantityHistory> _stockQuantityHistoryRepository;
++
++    #endregion
++
++    #region Ctor
++
++    public StockLedgerExportModelFactory(IRepository<StockQuantityHistory> stockQuantityHistoryRepository)
++    {
++        _stockQuantityHistoryRepository = stockQuantityHistoryRepository;
++    }
++
++    #endregion
++
++    #region Methods
++
++    /// <summary>
++    /// Export the stock movements of a product
++    /// </summary>
++    public virtual async Task<string> ExportStockLedgerAsync(int productId)
++    {
++        var movements = await _stockQuantityHistoryRepository.Table
++            .Where(history => history.ProductId == productId)
++            .OrderBy(history => history.Id)
++            .ToListAsync();
++
++        return JsonSerializer.Serialize(movements);
++    }
++
++    #endregion
++}
