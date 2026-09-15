@@ -1,0 +1,64 @@
+diff --git a/src/Presentation/Nop.Web/Areas/Admin/Factories/ReportModelFactory.cs b/src/Presentation/Nop.Web/Areas/Admin/Factories/ReportModelFactory.cs
+index 50595e1..db9ee3d 100644
+--- a/src/Presentation/Nop.Web/Areas/Admin/Factories/ReportModelFactory.cs
++++ b/src/Presentation/Nop.Web/Areas/Admin/Factories/ReportModelFactory.cs
+@@ -312,14 +312,23 @@ public partial class ReportModelFactory : IReportModelFactory
+ 
+         //prepare low stock product models
+         var lowStockProductModels = new List<LowStockProductModel>();
+-        lowStockProductModels.AddRange(await products.SelectAwait(async product => new LowStockProductModel
++        lowStockProductModels.AddRange(await products.SelectAwait(async product =>
+         {
+-            Id = product.Id,
+-            Name = product.Name,
++            //the report shows what is left to sell; a buyer also needs to know how much of the shortfall
++            //is already committed to orders rather than gone
++            var availableQuantity = await _productService.GetTotalStockQuantityAsync(product);
++            var physicalQuantity = await _productService.GetTotalStockQuantityAsync(product, useReservedQuantity: false);
+ 
+-            ManageInventoryMethod = await _localizationService.GetLocalizedEnumAsync(product.ManageInventoryMethod),
+-            StockQuantity = await _productService.GetTotalStockQuantityAsync(product),
+-            Published = product.Published
++            return new LowStockProductModel
++            {
++                Id = product.Id,
++                Name = product.Name,
++
++                ManageInventoryMethod = await _localizationService.GetLocalizedEnumAsync(product.ManageInventoryMethod),
++                StockQuantity = availableQuantity,
++                ReservedQuantity = physicalQuantity - availableQuantity,
++                Published = product.Published
++            };
+         }).ToListAsync());
+ 
+         var currentCustomer = await _workContext.GetCurrentCustomerAsync();
+diff --git a/src/Presentation/Nop.Web/Areas/Admin/Models/Reports/LowStockProductModel.cs b/src/Presentation/Nop.Web/Areas/Admin/Models/Reports/LowStockProductModel.cs
+index 8a0e8c6..54fddc3 100644
+--- a/src/Presentation/Nop.Web/Areas/Admin/Models/Reports/LowStockProductModel.cs
++++ b/src/Presentation/Nop.Web/Areas/Admin/Models/Reports/LowStockProductModel.cs
+@@ -21,6 +21,9 @@ public partial record LowStockProductModel : BaseNopEntityModel
+     [NopResourceDisplayName("Admin.Catalog.Products.Fields.StockQuantity")]
+     public int StockQuantity { get; set; }
+ 
++    [NopResourceDisplayName("Admin.Catalog.Products.ProductWarehouseInventory.Fields.ReservedQuantity")]
++    public int ReservedQuantity { get; set; }
++
+     [NopResourceDisplayName("Admin.Catalog.Products.Fields.Published")]
+     public bool Published { get; set; }
+ 
+diff --git a/src/Presentation/Nop.Web/Areas/Admin/Views/Report/LowStock.cshtml b/src/Presentation/Nop.Web/Areas/Admin/Views/Report/LowStock.cshtml
+index 21b08fc..ba0f912 100644
+--- a/src/Presentation/Nop.Web/Areas/Admin/Views/Report/LowStock.cshtml
++++ b/src/Presentation/Nop.Web/Areas/Admin/Views/Report/LowStock.cshtml
+@@ -92,6 +92,11 @@
+                                     Title = T("Admin.Catalog.Products.Fields.StockQuantity").Text,
+                                     Width = "100"
+                                 },
++                                new ColumnProperty(nameof(LowStockProductModel.ReservedQuantity))
++                                {
++                                    Title = T("Admin.Catalog.Products.ProductWarehouseInventory.Fields.ReservedQuantity").Text,
++                                    Width = "100"
++                                },
+                                 new ColumnProperty(nameof(LowStockProductModel.Published))
+                                 {
+                                     Title = T("Admin.Catalog.Products.Fields.Published").Text,
