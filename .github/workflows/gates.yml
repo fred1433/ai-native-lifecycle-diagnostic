@@ -33,26 +33,33 @@ jobs:
 
       - name: every ticket carries a receipt that agrees with its own diff
         run: |
-          set -e
           shopt -s nullglob
-          for ticket in tickets/*/; do
-            [ -f "$ticket/change.patch" ] || continue
-            python3 scripts/verify_receipt.py "$ticket"
+          patches=(tickets/*/change.patch)
+          echo "${#patches[@]} ticket(s) in this revision"
+          for patch in "${patches[@]}"; do
+            python3 scripts/verify_receipt.py "$(dirname "$patch")"
           done
 
       - name: added lines obey the rules that admit no baseline
-        run: python3 scripts/check_added_lines.py tickets/*/change.patch
+        run: |
+          shopt -s nullglob
+          patches=(tickets/*/change.patch)
+          if [ ${#patches[@]} -gt 0 ]; then
+            python3 scripts/check_added_lines.py "${patches[@]}"
+          else
+            echo "no ticket in this revision"
+          fi
 
       - name: verdicts
         run: |
+          shopt -s nullglob
           {
             echo "## Autonomy verdicts, computed from the diffs"
-            for ticket in tickets/*/; do
-              [ -f "$ticket/change.patch" ] || continue
+            for patch in tickets/*/change.patch; do
               echo ""
-              echo "### $(basename "$ticket")"
+              echo "### $(basename "$(dirname "$patch")")"
               echo '```'
-              python3 scripts/classify_change.py "$ticket/change.patch"
+              python3 scripts/classify_change.py "$patch"
               echo '```'
             done
           } >> "$GITHUB_STEP_SUMMARY"
@@ -60,7 +67,7 @@ jobs:
       - id: discover
         name: one job per ticket
         run: |
-          list=$(ls -d tickets/*/ 2>/dev/null | sed 's:/$::' | python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
+          list=$(python3 -c "import json,pathlib; print(json.dumps(sorted(str(p.parent) for p in pathlib.Path('tickets').glob('*/change.patch'))))" 2>/dev/null || echo "[]")
           echo "tickets=$list" >> "$GITHUB_OUTPUT"
           echo "$list"
 
@@ -70,6 +77,8 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: a schema change needs a human signature, not a green build
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
