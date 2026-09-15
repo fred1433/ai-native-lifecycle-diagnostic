@@ -1,0 +1,24 @@
+diff --git a/src/Libraries/Nop.Services/Catalog/ProductService.cs b/src/Libraries/Nop.Services/Catalog/ProductService.cs
+index 65e3413..bfb7833 100644
+--- a/src/Libraries/Nop.Services/Catalog/ProductService.cs
++++ b/src/Libraries/Nop.Services/Catalog/ProductService.cs
+@@ -399,8 +399,9 @@ public partial class ProductService : IProductService
+ 
+         var qty = -quantity;
+ 
++        //ship from the main warehouse first: the site that holds the most units
+         var productInventory = await _productWarehouseInventoryRepository.Table.Where(pwi => pwi.ProductId == product.Id)
+-            .OrderByDescending(pwi => pwi.StockQuantity - pwi.ReservedQuantity)
++            .OrderByDescending(pwi => pwi.StockQuantity)
+             .ToListAsync();
+ 
+         if (productInventory.Count <= 0)
+@@ -409,7 +410,7 @@ public partial class ProductService : IProductService
+         // 1st pass: Applying reserved
+         foreach (var item in productInventory)
+         {
+-            var selectQty = Math.Min(Math.Max(0, item.StockQuantity - item.ReservedQuantity), qty);
++            var selectQty = Math.Min(item.StockQuantity, qty);
+             item.ReservedQuantity += selectQty;
+             qty -= selectQty;
+ 

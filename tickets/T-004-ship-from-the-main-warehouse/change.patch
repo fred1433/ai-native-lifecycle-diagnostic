@@ -1,0 +1,19 @@
+diff --git a/src/Libraries/Nop.Services/Catalog/ProductService.cs b/src/Libraries/Nop.Services/Catalog/ProductService.cs
+index 65e3413..3b01a3b 100644
+--- a/src/Libraries/Nop.Services/Catalog/ProductService.cs
++++ b/src/Libraries/Nop.Services/Catalog/ProductService.cs
+@@ -399,8 +399,13 @@ public partial class ProductService : IProductService
+ 
+         var qty = -quantity;
+ 
++        //ship from the main warehouse first: the site that holds the most units, with what is
++        //already committed to other orders breaking the tie. Only the order of the warehouses
++        //changes here. What may be taken from each of them is still what is free in it, which is
++        //the line that keeps the platform from committing units twice.
+         var productInventory = await _productWarehouseInventoryRepository.Table.Where(pwi => pwi.ProductId == product.Id)
+-            .OrderByDescending(pwi => pwi.StockQuantity - pwi.ReservedQuantity)
++            .OrderByDescending(pwi => pwi.StockQuantity)
++            .ThenByDescending(pwi => pwi.StockQuantity - pwi.ReservedQuantity)
+             .ToListAsync();
+ 
+         if (productInventory.Count <= 0)
