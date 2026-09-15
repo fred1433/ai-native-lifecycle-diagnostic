@@ -5,7 +5,10 @@ name: gates
 # tickets were produced once, by an agent, and what runs from now on is arithmetic and tests.
 
 on:
+  # A label is an input to the gates, so applying or removing one has to run them again. Without
+  # this, a human signature arrives after the verdict and the verdict never hears about it.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
   workflow_dispatch:
