@@ -50,3 +50,10 @@ and it is not this ticket's job to change it.
 - The two service calls in the factory are two reads per product on a report that already reads per
   product. On a catalogue where the report returns hundreds of rows this is worth measuring before it
   ships widely; it is recorded here rather than left to be discovered.
+
+## Cost of the control
+
+- CI, one run end to end: about six minutes, of which the policy checks take four seconds.
+- Iterations: one.
+- Human interventions: none. That is what tier one means, and it is the only ticket here where it
+  is true.
