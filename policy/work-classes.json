@@ -1,0 +1,391 @@
+{
+  "version": 1,
+  "description": "Executable autonomy policy. The classifier reads a diff, matches it against the classes and markers below, and computes the autonomy tier and the required gates. An agent never declares its own tier: it is derived from what the change touches. Paths are POSIX globs relative to the upstream checkout root; symbols are matched against added lines of the diff only.",
+  "upstream": {
+    "repo": "https://github.com/nopSolutions/nopCommerce",
+    "tag": "release-4.90.8",
+    "commit": "918444773367deb734b93d3ad80e17325d6c147a"
+  },
+  "tiers": {
+    "T1": {
+      "name": "Agent authors, gates decide",
+      "human_involvement": "Review after merge, by sampling. No human is in the critical path.",
+      "rationale": "Blast radius is one screen. The gates that matter (build, regression suite, boundary rules) are mechanical and complete for this class."
+    },
+    "T2": {
+      "name": "Agent authors, human approves before merge",
+      "human_involvement": "Named reviewer approves the PR. The reviewer reads the receipt first, the diff second.",
+      "rationale": "Mechanical gates catch the shape of the change but not its intent. A human confirms the intent was the right one."
+    },
+    "T3": {
+      "name": "Human decides, agent implements",
+      "human_involvement": "An engineer writes the approach in the ticket before any agent runs, approves the PR, and signs the named control (schema label, rollback note).",
+      "rationale": "The failure mode is silent and expensive: wrong rows, lost money, a lock held across a call. Tests can prove a change is wrong, not that it is right."
+    },
+    "T4": {
+      "name": "No agent authorship",
+      "human_involvement": "An engineer authors the change. The agent is allowed to read, search, summarise and draft a design note, never to produce the diff that ships.",
+      "rationale": "The change alters the rules the rest of the system relies on. Reviewing it costs more than writing it."
+    }
+  },
+  "classes": [
+    {
+      "id": "ui-application",
+      "title": "UI and application development",
+      "tier": "T1",
+      "risk": "Wrong rendering is visible, cheap to revert, and caught by a screen. The real risk is a view reaching past the presentation layer for data it was not given.",
+      "match": {
+        "paths": [
+          "src/Presentation/Nop.Web/Views/**",
+          "src/Presentation/Nop.Web/Areas/Admin/Views/**",
+          "src/Presentation/Nop.Web/Models/**",
+          "src/Presentation/Nop.Web/Areas/Admin/Models/**",
+          "src/Presentation/Nop.Web/Components/**",
+          "src/Presentation/Nop.Web/wwwroot/**",
+          "src/Presentation/Nop.Web/Themes/**",
+          "src/Presentation/Nop.Web/Factories/**",
+          "src/Presentation/Nop.Web/Areas/Admin/Factories/**",
+          "src/Presentation/Nop.Web/Controllers/**",
+          "src/Presentation/Nop.Web/Areas/Admin/Controllers/**",
+          "**/*.cshtml"
+        ],
+        "symbols": []
+      },
+      "context_pack": [
+        "harness/agent-instructions/CONVENTIONS.generated.md (mined from the tree, not written from memory)",
+        "The model, the view and the factory for the screen being changed, plus one sibling screen as a worked example",
+        "The localisation convention: user facing strings come from resources, never from literals in a view",
+        "The list of types the presentation layer may not reference (policy/boundaries.json)"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour"
+      ]
+    },
+    {
+      "id": "database-transactions",
+      "title": "Database transactions",
+      "tier": "T3",
+      "risk": "A read-then-write on stock or money without a transaction or a guard is correct in every test and wrong under two concurrent orders. The damage is silent and it is in the ledger.",
+      "match": {
+        "paths": [
+          "src/Libraries/Nop.Data/**",
+          "src/Libraries/Nop.Services/Orders/**",
+          "src/Libraries/Nop.Services/Payments/**",
+          "src/Libraries/Nop.Services/Catalog/ProductService.cs"
+        ],
+        "symbols": [
+          "BeginTransaction",
+          "TransactionScope",
+          "IRepository<",
+          "InsertAsync(",
+          "UpdateAsync(",
+          "DeleteAsync(",
+          "ExecuteNonQueryAsync",
+          "QueryProcAsync",
+          "FromSqlRaw",
+          "DataContext",
+          "LinqToDB"
+        ]
+      },
+      "context_pack": [
+        "The service being changed, its interface, and its existing tests",
+        "The entity mapping and the current schema of every table the change reads or writes",
+        "The transaction and isolation convention actually in use in the surrounding code, quoted",
+        "The concurrency scenario the change must survive, written by the engineer, not inferred by the agent"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour",
+        "human-approval",
+        "pinning-test"
+      ],
+      "mapping_note": "Stock is the second ledger of this platform and it is not kept under a folder called data. ProductService is listed by name because a path prefix cannot say 'the part of the catalogue that moves quantities'. Every policy of this kind ends up with a handful of named files; the ones here are listed rather than hidden behind a clever glob."
+    },
+    {
+      "id": "performance",
+      "title": "Performance",
+      "tier": "T2",
+      "risk": "An agent optimises what it can see. Cache keys that forget a scope, and queries that move work into a loop, both pass every functional test.",
+      "match": {
+        "paths": [],
+        "symbols": [
+          "IStaticCacheManager",
+          "CacheKey",
+          "PrepareKeyForDefaultCache",
+          "RemoveByPrefixAsync",
+          "CreateIndex",
+          "AddIndex",
+          "Parallel.For"
+        ]
+      },
+      "context_pack": [
+        "The measurement that motivated the change: query plan, timing, or row counts, taken before",
+        "The cache key convention and the invalidation path for the entity touched",
+        "The scopes every key must carry in this system (store, vendor, customer roles, language)"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour",
+        "human-approval",
+        "measurement-in-receipt"
+      ],
+      "detection_limit": "Performance is the class this classifier detects worst. Cache keys and indexes are visible in a diff; a query moved inside a loop is not, and materialising a list is so common that a rule on it would fire on every change and be turned off within a week. The honest fix is not a cleverer regex: it is a query counter in the test harness, so a change that turns one query into forty fails on a number instead of on a pattern. That is scoped in docs/POINTING-IT-AT-YOUR-PLATFORM.md, and it is not implemented here."
+    },
+    {
+      "id": "integrations",
+      "title": "Integrations",
+      "tier": "T2",
+      "risk": "The other side is not in the repository. Nothing in the build fails when the payload quietly changes shape, and the party that notices is the accounting system, a day later.",
+      "match": {
+        "paths": [
+          "src/Plugins/**",
+          "src/Libraries/Nop.Services/ExportImport/**",
+          "src/Libraries/Nop.Services/Shipping/**",
+          "src/Libraries/Nop.Services/Tax/**"
+        ],
+        "symbols": [
+          "HttpClient",
+          "IHttpClientFactory",
+          "HttpRequestMessage",
+          "JsonSerializer",
+          "WebRequest",
+          "SoapHttpClientProtocol"
+        ]
+      },
+      "context_pack": [
+        "The contract of the other side: the payload we send today, pinned as a fixture",
+        "The failure and retry convention used by the existing integrations here",
+        "Which fields are the other side's identity keys, and which of ours are scoped per tenant"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour",
+        "human-approval",
+        "contract-test"
+      ]
+    },
+    {
+      "id": "concurrency",
+      "title": "Concurrency",
+      "tier": "T3",
+      "risk": "The failure appears under load, in production, once. An agent has no way to observe it and the suite has no way to reproduce it.",
+      "match": {
+        "paths": [],
+        "symbols": [
+          "SemaphoreSlim",
+          "Interlocked",
+          "ConcurrentDictionary",
+          "Task.Run(",
+          "Task.WhenAll",
+          "lock (",
+          "async void",
+          "ReserveInventory",
+          "UnblockReservedInventory",
+          "ConfigureAwait(false)"
+        ]
+      },
+      "context_pack": [
+        "The interleaving the change must survive, written as two ordered timelines",
+        "What the lock or the guard protects, and what is allowed to happen inside it",
+        "The existing concurrency primitives used in this area, quoted from the tree"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour",
+        "human-approval",
+        "pinning-test"
+      ]
+    },
+    {
+      "id": "legacy-architecture",
+      "title": "Legacy architecture",
+      "tier": "T3",
+      "risk": "Old code encodes decisions nobody restates. An agent reads the code and infers the rule from what it sees, which is how a fifteen year old exception becomes tomorrow's convention.",
+      "match": {
+        "paths": [
+          "src/Libraries/Nop.Core/Infrastructure/**",
+          "src/Libraries/Nop.Services/Plugins/**",
+          "src/Presentation/Nop.Web.Framework/Infrastructure/**",
+          "src/Presentation/Nop.Web.Framework/Mvc/**"
+        ],
+        "symbols": [
+          "Obsolete",
+          "NopEngine",
+          "IEngine",
+          "ITypeFinder"
+        ]
+      },
+      "context_pack": [
+        "The decision record for this area if one exists, and the explicit statement that none does if it does not",
+        "The list of callers, produced by search, not by memory",
+        "The boundary baseline: which exceptions to the rules already exist here and why they were kept"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour",
+        "human-approval",
+        "pinning-test"
+      ]
+    },
+    {
+      "id": "fundamental-change",
+      "title": "Fundamental system changes",
+      "tier": "T4",
+      "risk": "The change moves the ground other changes stand on: dependency registration, the startup pipeline, the data provider, the plugin contract. Review costs more than authorship.",
+      "match": {
+        "paths": [
+          "src/Libraries/Nop.Core/Infrastructure/NopEngine.cs",
+          "src/Libraries/Nop.Data/DataProviders/**",
+          "src/Libraries/Nop.Data/DataProviderManager.cs",
+          "src/Libraries/Nop.Core/Configuration/**",
+          "src/Presentation/Nop.Web/Program.cs",
+          "src/Presentation/Nop.Web.Framework/Infrastructure/Extensions/**",
+          "**/DependencyRegistrar.cs",
+          "**/Directory.Build.props",
+          "**/global.json"
+        ],
+        "symbols": [
+          "INopStartup",
+          "ConfigureServices(",
+          "IServiceCollection services"
+        ]
+      },
+      "context_pack": [
+        "A design note written by an engineer, reviewed before any code exists",
+        "The migration and rollback plan for every environment",
+        "The agent's role in writing: none"
+      ],
+      "gates": [
+        "receipt",
+        "classifier-agreement",
+        "build",
+        "architecture",
+        "golden-behaviour",
+        "human-approval",
+        "design-note"
+      ]
+    }
+  ],
+  "markers": [
+    {
+      "id": "schema",
+      "title": "Schema change",
+      "min_tier": "T3",
+      "match": {
+        "paths": [
+          "src/Libraries/Nop.Data/Migrations/**",
+          "src/Libraries/Nop.Data/Mapping/**"
+        ],
+        "symbols": [
+          "NopMigration",
+          "NopSchemaMigration",
+          "Create.Table",
+          "Alter.Table",
+          "Delete.Table",
+          "Delete.Column",
+          "Create.Column",
+          "Create.Index"
+        ]
+      },
+      "gates": [
+        "schema-label",
+        "rollback-note"
+      ],
+      "why": "A migration runs once, on live data, in an order nobody replays. It is the one change where being wrong is not revertible by a revert."
+    },
+    {
+      "id": "money",
+      "title": "Money path",
+      "min_tier": "T2",
+      "match": {
+        "paths": [
+          "src/Libraries/Nop.Services/Orders/OrderTotalCalculationService.cs",
+          "src/Libraries/Nop.Services/Tax/**",
+          "src/Libraries/Nop.Services/Discounts/**"
+        ],
+        "symbols": [
+          "OrderTotal",
+          "SubTotal",
+          "TaxRate",
+          "RewardPoints",
+          "decimal Price"
+        ]
+      },
+      "gates": [
+        "golden-behaviour"
+      ],
+      "why": "The totals suite is the only artefact in the tree that states what the arithmetic is supposed to be."
+    },
+    {
+      "id": "tenant-scope",
+      "title": "Tenant scope",
+      "min_tier": "T2",
+      "match": {
+        "paths": [],
+        "symbols": [
+          "storeId",
+          "StoreId",
+          "IStoreMappingService",
+          "vendorId",
+          "VendorId",
+          "IStoreContext"
+        ]
+      },
+      "gates": [
+        "pinning-test"
+      ],
+      "why": "In a multi tenant platform, the dangerous query is not the one that fails, it is the one that returns another tenant's rows and looks fine."
+    },
+    {
+      "id": "test-surface",
+      "title": "The tests themselves",
+      "min_tier": "T2",
+      "match": {
+        "paths": [
+          "src/Tests/**",
+          "harness/**",
+          "policy/**",
+          "scripts/**"
+        ],
+        "symbols": []
+      },
+      "gates": [
+        "human-approval"
+      ],
+      "why": "An agent that can change the tests can change what green means. Every other gate in this policy is downstream of this one, so a change that touches the control surface is never merged on a machine's word alone."
+    }
+  ],
+  "gate_definitions": {
+    "receipt": "tickets/<id>/receipt.md exists and carries every required section.",
+    "classifier-agreement": "The tier and classes written in the receipt equal the ones the classifier computes from the diff. An agent that under declares its own risk fails here.",
+    "build": "The upstream tree, with the patch applied, compiles.",
+    "architecture": "The boundary rules hold, measured against a recorded baseline. New violations fail, pre existing ones are listed and frozen.",
+    "golden-behaviour": "The selected upstream suites (orders, catalog, shipping, tax) pass on the patched tree.",
+    "pinning-test": "The patch adds or changes a test that fails without the change and passes with it.",
+    "contract-test": "The payload crossing the boundary is pinned by a fixture and compared byte for byte.",
+    "measurement-in-receipt": "The receipt carries a before and an after number, taken the same way.",
+    "human-approval": "A named human approved the pull request.",
+    "schema-label": "The pull request carries the human-review:schema label, applied by a human after reading the migration.",
+    "rollback-note": "The receipt states what running this migration backwards costs.",
+    "design-note": "A design note exists and was approved before the diff."
+  }
+}

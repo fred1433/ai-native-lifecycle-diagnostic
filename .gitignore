@@ -1,0 +1,9 @@
+upstream/
+bin/
+obj/
+.DS_Store
+*.user
+TestResults/
+node_modules/
+__pycache__/
+*.pyc

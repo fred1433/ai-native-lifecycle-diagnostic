@@ -1,0 +1,131 @@
+name: gates
+
+# Every gate in the policy runs here, on every pull request, against the upstream platform
+# fetched at the pinned commit. No model is called in this workflow: the analysis and the
+# tickets were produced once, by an agent, and what runs from now on is arithmetic and tests.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  GOLDEN_FILTER: "FullyQualifiedName~Nop.Services.Tests.Orders|FullyQualifiedName~Nop.Services.Tests.Catalog|FullyQualifiedName~Nop.Services.Tests.Shipping|FullyQualifiedName~Nop.Services.Tests.Tax"
+
+jobs:
+  policy:
+    name: policy
+    runs-on: ubuntu-latest
+    outputs:
+      tickets: ${{ steps.discover.outputs.tickets }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the classifier and the receipt verifier are themselves tested
+        run: python3 -m unittest discover -s harness/policy_tests -v
+
+      - name: every ticket carries a receipt that agrees with its own diff
+        run: |
+          set -e
+          shopt -s nullglob
+          for ticket in tickets/*/; do
+            [ -f "$ticket/change.patch" ] || continue
+            python3 scripts/verify_receipt.py "$ticket"
+          done
+
+      - name: added lines obey the rules that admit no baseline
+        run: python3 scripts/check_added_lines.py tickets/*/change.patch
+
+      - name: verdicts
+        run: |
+          {
+            echo "## Autonomy verdicts, computed from the diffs"
+            for ticket in tickets/*/; do
+              [ -f "$ticket/change.patch" ] || continue
+              echo ""
+              echo "### $(basename "$ticket")"
+              echo '```'
+              python3 scripts/classify_change.py "$ticket/change.patch"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - id: discover
+        name: one job per ticket
+        run: |
+          list=$(ls -d tickets/*/ 2>/dev/null | sed 's:/$::' | python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))")
+          echo "tickets=$list" >> "$GITHUB_OUTPUT"
+          echo "$list"
+
+  human-gates:
+    name: human gates
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: a schema change needs a human signature, not a green build
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python3 scripts/check_human_gates.py --labels "$PR_LABELS" --changed-tickets-from-git "${{ github.event.pull_request.base.sha }}"
+
+  boundaries-clean:
+    name: boundaries on the untouched platform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: fetch the upstream platform at the pinned commit
+        run: bash scripts/fetch_upstream.sh
+      - name: cache nuget
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('harness/ArchitectureTests/ArchitectureTests.csproj', 'policy/work-classes.json') }}
+      - name: the baseline is accurate at this commit
+        run: dotnet test harness/ArchitectureTests/ArchitectureTests.csproj -c Release --logger "console;verbosity=normal"
+
+  ticket:
+    name: ticket
+    needs: policy
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ticket: ${{ fromJSON(needs.policy.outputs.tickets) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: fetch the upstream platform at the pinned commit
+        run: bash scripts/fetch_upstream.sh
+
+      - name: cache nuget
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('harness/ArchitectureTests/ArchitectureTests.csproj', 'policy/work-classes.json') }}
+
+      - name: apply the change to the platform
+        run: |
+          git -C upstream apply --verbose --whitespace=nowarn "${GITHUB_WORKSPACE}/${{ matrix.ticket }}/change.patch"
+          git -C upstream --no-pager diff --stat
+
+      - name: build
+        run: dotnet build harness/ArchitectureTests/ArchitectureTests.csproj -c Release
+
+      - name: boundaries
+        run: dotnet test harness/ArchitectureTests/ArchitectureTests.csproj -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: behaviour, the flows where stock and money move
+        run: dotnet test upstream/src/Tests/Nop.Tests/Nop.Tests.csproj -c Release --filter "$GOLDEN_FILTER" --logger "console;verbosity=normal"

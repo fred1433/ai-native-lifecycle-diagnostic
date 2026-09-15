@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "description": "Rules that apply to added lines only, and admit no baseline. A rule about the whole tree has to tolerate fifteen years of exceptions; a rule about the lines written today does not. Each rule states the convention it enforces and the measurement that shows the convention is real in this codebase, not imported from somewhere else. The measurements are produced by scripts/mine_conventions.py at the pinned commit.",
+  "rules": [
+    {
+      "id": "blocking-wait",
+      "pattern": "\\.GetAwaiter\\(\\)\\.GetResult\\(\\)|\\.Wait\\(\\)|[a-zA-Z0-9_\\)]\\.Result\\b",
+      "applies_to": [
+        "**/*.cs"
+      ],
+      "message": "Blocking on a task. This platform is asynchronous end to end; a blocking wait inside a request holds a pool thread and deadlocks under load, which no test reproduces.",
+      "convention": "async all the way down",
+      "measured": "3131 asynchronous members against 13 blocking waits left in the platform. The convention is real and it is not absolute, and those 13 lines are what an agent quotes back as precedent."
+    },
+    {
+      "id": "async-void",
+      "pattern": "\\basync\\s+void\\b",
+      "applies_to": [
+        "**/*.cs"
+      ],
+      "message": "An async void method cannot be awaited and its exception cannot be caught by the caller. It becomes an unobserved crash.",
+      "convention": "async methods return Task"
+    },
+    {
+      "id": "sql-string-building",
+      "pattern": "\"\\s*(SELECT|INSERT|UPDATE|DELETE|DROP)\\b[^\"]*\"\\s*\\+|\\$\"\\s*(SELECT|INSERT|UPDATE|DELETE)\\b",
+      "applies_to": [
+        "**/*.cs"
+      ],
+      "message": "SQL assembled by string concatenation or interpolation. Injection aside, it also escapes every query review and every index review.",
+      "convention": "queries go through the repository and the query API",
+      "measured": "426 repository usages, and the ORM itself appears in no file outside the data layer."
+    },
+    {
+      "id": "wall-clock",
+      "pattern": "DateTime\\.Now\\b",
+      "applies_to": [
+        "**/*.cs"
+      ],
+      "message": "Local wall clock time. Stored timestamps in this platform are UTC; a local time in a row is a bug that surfaces twice a year.",
+      "convention": "DateTime.UtcNow for storage, the date time helper for display",
+      "measured": "333 uses of the UTC clock against 21 of the local one."
+    },
+    {
+      "id": "async-suffix",
+      "pattern": "\\bpublic\\s+(?:virtual\\s+|override\\s+|static\\s+)*(?:async\\s+)?Task(?:<[^>]*>)?\\s+(?!.*Async\\s*\\()[A-Z][A-Za-z0-9_]*\\s*\\(",
+      "applies_to": [
+        "**/*.cs"
+      ],
+      "message": "A public method that returns a task must end in Async. The suffix is how every caller in this codebase knows what to await.",
+      "convention": "Async suffix on task returning members",
+      "excludes": [
+        "src/Tests/**"
+      ],
+      "measured": "1222 task returning members in the service layer carry the suffix. In the test tree the convention is the opposite: 431 test methods return a task without it, 19 with. A rule that fires on 431 existing lines is a rule somebody switches off, so it stops at the test tree."
+    }
+  ],
+  "applies_note": "Counts come from scripts/mine_conventions.py at the pinned commit."
+}

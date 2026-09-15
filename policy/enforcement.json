@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "description": "Which gates block a merge in this repository, and which are reported but cannot block here. The distinction is stated rather than hidden, because a harness that quietly downgrades its own controls is worth nothing.",
+  "schema_label": "human-review:schema",
+  "blocking": [
+    "receipt",
+    "classifier-agreement",
+    "build",
+    "architecture",
+    "golden-behaviour",
+    "pinning-test",
+    "contract-test",
+    "measurement-in-receipt",
+    "rollback-note",
+    "design-note",
+    "schema-label"
+  ],
+  "advisory": {
+    "human-approval": "GitHub does not let the author of a pull request approve it, and this demonstration repository has one maintainer. In an organisation this gate is a branch protection rule with required reviewers, not a script: the platform enforces it and no workflow can bypass it. It is reported here so the receipt still records that it was owed."
+  }
+}
