@@ -15,6 +15,9 @@ not. This is what it takes to repoint it, what comes out, and what the analogue 
    already runs the suites, the harness adds the classifier, the boundary rules and the receipt check.
 4. **Two or three examples of AI assisted changes that went in recently.** The ones that went wrong
    are worth more than the ones that went well.
+5. **Terms of access agreed first.** What may be read, by whom, on what machine, for how long, and
+   what happens to it afterwards. Nothing is read before that is written down, and none of it needs
+   to leave your infrastructure: the harness runs where the code already is.
 
 ## What comes out
 
