@@ -78,3 +78,13 @@ unless it is built online.
 - The two new tests fail without the code change and pass with it, which is the whole claim.
 - Human gates: `human-review:schema` was refused by CI until a person applied it. The red run and the
   green run that followed are linked from the pull request.
+
+## Cost of the control
+
+- CI, one run end to end: about six minutes, of which the policy checks take four seconds and the
+  rest is restoring, building and running the platform.
+- Iterations: two. The first run was refused because the schema label was not there yet.
+- Human interventions: one. A person read the migration and applied the label, which is the entire
+  point of this gate and the only thing in the pull request a test could not judge.
+- What it cost to have the control: the invariant test. It was written before the code changed, and
+  everything the next ticket demonstrates comes from it existing first.
