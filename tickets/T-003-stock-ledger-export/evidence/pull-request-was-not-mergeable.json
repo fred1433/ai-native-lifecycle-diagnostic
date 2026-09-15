@@ -1,0 +1,32 @@
+{
+  "captured": "github api, gh pr view, while the pull request was still open",
+  "number": 3,
+  "title": "T-003 export stock movements to the accounting system",
+  "url": "https://github.com/fred1433/ai-native-lifecycle-diagnostic/pull/3",
+  "state_at_capture": "OPEN",
+  "mergeStateStatus": "BLOCKED",
+  "checks": [
+    {
+      "name": "policy",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "human gates",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "boundaries on the untouched platform",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "ticket (tickets/T-003-stock-ledger-export)",
+      "conclusion": "FAILURE"
+    },
+    {
+      "name": "gates ok",
+      "conclusion": "FAILURE"
+    }
+  ],
+  "outcome": "closed without being merged",
+  "note": "main is protected by a required check and a required review, so this pull request was not merely red: it could not be merged. Once a pull request is closed GitHub stops computing mergeStateStatus and reports UNKNOWN, which is why this record was taken while it was open."
+}
