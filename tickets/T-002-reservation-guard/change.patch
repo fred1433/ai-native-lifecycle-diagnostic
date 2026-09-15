@@ -1,0 +1,196 @@
+diff --git a/src/Libraries/Nop.Data/Migrations/UpgradeTo491/StockReservationIndexMigration.cs b/src/Libraries/Nop.Data/Migrations/UpgradeTo491/StockReservationIndexMigration.cs
+new file mode 100644
+index 0000000..4a1171f
+--- /dev/null
++++ b/src/Libraries/Nop.Data/Migrations/UpgradeTo491/StockReservationIndexMigration.cs
+@@ -0,0 +1,29 @@
++﻿using FluentMigrator;
++using Nop.Core.Domain.Catalog;
++
++namespace Nop.Data.Migrations.UpgradeTo491;
++
++[NopSchemaMigration("2026-09-15 00:00:00", "StockReservationIndexMigration for 4.91.0")]
++public class StockReservationIndexMigration : ForwardOnlyMigration
++{
++    /// <summary>
++    /// Collect the UP migration expressions
++    /// </summary>
++    public override void Up()
++    {
++        //every reservation reads the warehouse rows of one product, and the stock total reads them
++        //twice more. The foreign key on ProductId does not carry an index of its own on SQL Server,
++        //so all three are scans on a table that grows with products multiplied by warehouses.
++        var tableName = nameof(ProductWarehouseInventory);
++        var productIdColumnName = nameof(ProductWarehouseInventory.ProductId);
++        var warehouseIdColumnName = nameof(ProductWarehouseInventory.WarehouseId);
++        var indexName = "IX_ProductWarehouseInventory_ProductId_WarehouseId";
++
++        if (!Schema.Table(tableName).Index(indexName).Exists())
++            Create.Index(indexName)
++                .OnTable(tableName)
++                .OnColumn(productIdColumnName).Ascending()
++                .OnColumn(warehouseIdColumnName).Ascending()
++                .WithOptions().NonClustered();
++    }
++}
+diff --git a/src/Libraries/Nop.Services/Catalog/ProductService.cs b/src/Libraries/Nop.Services/Catalog/ProductService.cs
+index 15ea9ed..65e3413 100644
+--- a/src/Libraries/Nop.Services/Catalog/ProductService.cs
++++ b/src/Libraries/Nop.Services/Catalog/ProductService.cs
+@@ -419,6 +419,12 @@ public partial class ProductService : IProductService
+ 
+         if (qty > 0)
+         {
++            //the warehouses cannot cover this reservation. Booking the shortfall anyway is what turns
++            //a race between two checkouts into stock that does not exist, silently, until someone counts.
++            if (product.BackorderMode == BackorderMode.NoBackorders)
++                throw new NopException(
++                    $"Cannot reserve {-quantity} units of product {product.Id}: the warehouses hold {-quantity - qty} available and this product does not allow backorders.");
++
+             // 2rd pass: Booking negative stock!
+             var pwi = productInventory[0];
+             pwi.ReservedQuantity += qty;
+diff --git a/src/Tests/Nop.Tests/Nop.Services.Tests/Catalog/ProductServiceTests.cs b/src/Tests/Nop.Tests/Nop.Services.Tests/Catalog/ProductServiceTests.cs
+index b4b365c..be99f2c 100644
+--- a/src/Tests/Nop.Tests/Nop.Services.Tests/Catalog/ProductServiceTests.cs
++++ b/src/Tests/Nop.Tests/Nop.Services.Tests/Catalog/ProductServiceTests.cs
+@@ -1,4 +1,5 @@
+ ﻿using FluentAssertions;
++using Nop.Core;
+ using Nop.Core.Domain.Catalog;
+ using Nop.Services.Catalog;
+ using NUnit.Framework;
+@@ -60,6 +61,133 @@ public class ProductServiceTests : ServiceTest
+ 
+     #region Tests
+ 
++    /// <summary>
++    /// The invariant of this platform's stock: for a product that does not allow backorders, no
++    /// warehouse holds more units committed to orders than it physically has, and the committed
++    /// total never exceeds the held total.
++    ///
++    /// It is written as a property of the final state rather than as an assertion about one code
++    /// path, so that a change which reaches the same place by another route still has to satisfy it.
++    /// </summary>
++    [Test]
++    public async Task CommittedStockNeverExceedsHeldStock()
++    {
++        var product = await _productService.GetProductByIdAsync(1);
++        var backorderMode = product.BackorderMode;
++        var before = await SnapshotWarehousesAsync(product.Id);
++
++        try
++        {
++            product.BackorderMode = BackorderMode.NoBackorders;
++            await _productService.UpdateProductAsync(product);
++
++            //the fixture holds 13 units across two warehouses, 5 already committed, so 8 are available
++            await _productService.AdjustInventoryAsync(product, -4);
++
++            var records = await _productService.GetAllProductWarehouseInventoryRecordsAsync(product.Id);
++
++            foreach (var record in records)
++                record.ReservedQuantity.Should().BeLessThanOrEqualTo(record.StockQuantity,
++                    "warehouse {0} cannot commit units it does not hold", record.WarehouseId);
++
++            records.Sum(record => record.ReservedQuantity).Should()
++                .BeLessThanOrEqualTo(records.Sum(record => record.StockQuantity),
++                    "the platform cannot commit more units than it holds");
++        }
++        finally
++        {
++            await RestoreWarehousesAsync(product.Id, before);
++            product.BackorderMode = backorderMode;
++            await _productService.UpdateProductAsync(product);
++        }
++    }
++
++    [Test]
++    public async Task ReservingMoreThanTheWarehousesHoldIsRefusedWhenBackordersAreNotAllowed()
++    {
++        var product = await _productService.GetProductByIdAsync(1);
++        var backorderMode = product.BackorderMode;
++        var before = await SnapshotWarehousesAsync(product.Id);
++
++        try
++        {
++            product.BackorderMode = BackorderMode.NoBackorders;
++            await _productService.UpdateProductAsync(product);
++
++            await _productService.Invoking(service => service.AdjustInventoryAsync(product, -10))
++                .Should().ThrowAsync<NopException>();
++
++            //and the refusal is all or nothing: the first pass must not leave part of it behind
++            var records = await _productService.GetAllProductWarehouseInventoryRecordsAsync(product.Id);
++            records.Sum(record => record.ReservedQuantity).Should().Be(5);
++        }
++        finally
++        {
++            await RestoreWarehousesAsync(product.Id, before);
++            product.BackorderMode = backorderMode;
++            await _productService.UpdateProductAsync(product);
++        }
++    }
++
++    [Test]
++    public async Task ReservingWhatTheWarehousesHoldStillSucceeds()
++    {
++        var product = await _productService.GetProductByIdAsync(1);
++        var backorderMode = product.BackorderMode;
++        var before = await SnapshotWarehousesAsync(product.Id);
++
++        try
++        {
++            product.BackorderMode = BackorderMode.NoBackorders;
++            await _productService.UpdateProductAsync(product);
++
++            await _productService.AdjustInventoryAsync(product, -3);
++
++            var records = await _productService.GetAllProductWarehouseInventoryRecordsAsync(product.Id);
++            records.Sum(record => record.ReservedQuantity).Should().Be(8);
++        }
++        finally
++        {
++            await RestoreWarehousesAsync(product.Id, before);
++            product.BackorderMode = backorderMode;
++            await _productService.UpdateProductAsync(product);
++        }
++    }
++
++    /// <summary>
++    /// Restoring the exact per warehouse numbers rather than adjusting the inventory back. Releasing
++    /// stock does not return it to the warehouse it came from, so a test that undoes itself with a
++    /// second adjustment leaves a different distribution behind and the fixture quietly depends on
++    /// the order its tests happen to run in.
++    /// </summary>
++    private async Task<IList<ProductWarehouseInventory>> SnapshotWarehousesAsync(int productId)
++    {
++        return (await _productService.GetAllProductWarehouseInventoryRecordsAsync(productId))
++            .Select(record => new ProductWarehouseInventory
++            {
++                Id = record.Id,
++                ProductId = record.ProductId,
++                WarehouseId = record.WarehouseId,
++                StockQuantity = record.StockQuantity,
++                ReservedQuantity = record.ReservedQuantity
++            })
++            .ToList();
++    }
++
++    private async Task RestoreWarehousesAsync(int productId, IList<ProductWarehouseInventory> snapshot)
++    {
++        foreach (var record in await _productService.GetAllProductWarehouseInventoryRecordsAsync(productId))
++        {
++            var original = snapshot.FirstOrDefault(item => item.Id == record.Id);
++            if (original is null)
++                continue;
++
++            record.StockQuantity = original.StockQuantity;
++            record.ReservedQuantity = original.ReservedQuantity;
++            await _productService.UpdateProductWarehouseInventoryAsync(record);
++        }
++    }
++
+     [Test]
+     public void CanParseRequiredProductIds()
+     {

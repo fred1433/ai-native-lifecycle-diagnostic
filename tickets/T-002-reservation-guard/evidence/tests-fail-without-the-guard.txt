@@ -1,0 +1,8 @@
+Run on 2026-09-15T12:48:11Z, upstream at 9184447, with the two new tests applied and the guard in ProductService reverted.
+Command: dotnet test upstream/src/Tests/Nop.Tests/Nop.Tests.csproj -c Release --filter FullyQualifiedName~ProductServiceTests
+
+   Expected a <Nop.Core.NopException> to be thrown, but no exception was thrown.
+   Expected records.Sum(record => record.ReservedQuantity) to be 8, but found 18 (difference of 10).
+FAILED de la série de tests.
+Total tests : 20
+     Passed : 18
