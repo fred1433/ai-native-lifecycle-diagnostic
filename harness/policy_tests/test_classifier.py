@@ -186,7 +186,20 @@ what proves it
             ticket = self.make_ticket(tmp, self.RECEIPT_T1, diff)
             result = self.run_verifier(ticket)
             self.assertEqual(result.returncode, 1)
-            self.assertIn("declared tier T1 but the diff computes T3", result.stdout)
+            self.assertIn("below the floor the diff computes, T3", result.stdout)
+
+    def test_a_receipt_may_declare_a_higher_tier_than_the_floor(self):
+        """The floor is argued up by a person and never down by an author. A reviewer who decides a
+        view change deserves an approver must be able to say so without the harness contradicting them."""
+        receipt = self.RECEIPT_T1.replace('"tier": "T1"', '"tier": "T3"').replace(
+            "## Verification", "## Pinning test\nwhat would fail without the change\n## Verification"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            ticket = self.make_ticket(
+                tmp, receipt, patch("src/Presentation/Nop.Web/Views/Product/Details.cshtml")
+            )
+            result = self.run_verifier(ticket)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_missing_receipt_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -71,7 +71,7 @@ jobs:
           echo "tickets=$list" >> "$GITHUB_OUTPUT"
           echo "$list"
 
-  human-gates:
+  human_gates:
     name: human gates
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -84,7 +84,7 @@ jobs:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: python3 scripts/check_human_gates.py --labels "$PR_LABELS" --changed-tickets-from-git "${{ github.event.pull_request.base.sha }}"
 
-  boundaries-clean:
+  boundaries_clean:
     name: boundaries on the untouched platform
     runs-on: ubuntu-latest
     steps:
@@ -138,3 +138,27 @@ jobs:
 
       - name: behaviour, the flows where stock and money move
         run: dotnet test upstream/src/Tests/Nop.Tests/Nop.Tests.csproj -c Release --filter "$GOLDEN_FILTER" --logger "console;verbosity=normal"
+
+  gates_ok:
+    name: gates ok
+    if: always()
+    needs: [policy, human_gates, boundaries_clean, ticket]
+    runs-on: ubuntu-latest
+    steps:
+      - name: every gate passed or had nothing to do
+        run: |
+          results=(
+            "policy=${{ needs.policy.result }}"
+            "human gates=${{ needs.human_gates.result }}"
+            "boundaries=${{ needs.boundaries_clean.result }}"
+            "tickets=${{ needs.ticket.result }}"
+          )
+          printf '%s\n' "${results[@]}"
+          failed=0
+          for entry in "${results[@]}"; do
+            case "${entry#*=}" in
+              success|skipped) ;;
+              *) echo "::error::${entry%%=*} did not pass"; failed=1 ;;
+            esac
+          done
+          exit $failed

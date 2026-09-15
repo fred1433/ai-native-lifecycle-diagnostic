@@ -13,9 +13,11 @@
     "measurement-in-receipt",
     "rollback-note",
     "design-note",
-    "schema-label"
+    "schema-label",
+    "harness-label"
   ],
   "advisory": {
     "human-approval": "GitHub does not let the author of a pull request approve it, and this demonstration repository has one maintainer. In an organisation this gate is a branch protection rule with required reviewers, not a script: the platform enforces it and no workflow can bypass it. It is reported here so the receipt still records that it was owed."
-  }
+  },
+  "harness_label": "harness-change"
 }

@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from classify_change import classify  # noqa: E402
+from classify_change import TIER_ORDER, classify  # noqa: E402
 
 SECTION_FOR_GATE = {
     "rollback-note": "Rollback",
@@ -87,10 +87,13 @@ def main() -> int:
     if declared is None:
         failures.append("no machine readable classification block in the receipt")
     else:
-        if declared.get("tier") != computed["tier"]:
+        declared_tier = declared.get("tier")
+        if declared_tier not in TIER_ORDER:
+            failures.append(f"declared tier {declared_tier!r} is not one the policy defines")
+        elif TIER_ORDER.index(declared_tier) < TIER_ORDER.index(computed["tier"]):
             failures.append(
-                f"declared tier {declared.get('tier')} but the diff computes {computed['tier']}. "
-                "The classifier decides, not the author."
+                f"declared tier {declared_tier} is below the floor the diff computes, {computed['tier']}. "
+                "The floor can be argued up by a person and never down by an author."
             )
         if sorted(declared.get("classes", [])) != sorted(computed["classes"]):
             failures.append(

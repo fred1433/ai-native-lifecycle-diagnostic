@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Executable autonomy policy. The classifier reads a diff, matches it against the classes and markers below, and computes the autonomy tier and the required gates. An agent never declares its own tier: it is derived from what the change touches. Paths are POSIX globs relative to the upstream checkout root; symbols are matched against added lines of the diff only.",
+  "description": "Autonomy policy. The classifier reads a diff and computes a FLOOR: the lowest tier this change may be handled at, given what it touches. It is not a verdict. The tier that applies is set by impact, by the quality of the evidence available, by reversibility and by what is unknown, and a receipt may declare a higher tier than the floor, never a lower one. That asymmetry is the whole mechanism: a machine cannot argue its own risk down, and a human can always argue it up.",
   "upstream": {
     "repo": "https://github.com/nopSolutions/nopCommerce",
     "tag": "release-4.90.8",
@@ -10,22 +10,51 @@
     "T1": {
       "name": "Agent authors, gates decide",
       "human_involvement": "Review after merge, by sampling. No human is in the critical path.",
-      "rationale": "Blast radius is one screen. The gates that matter (build, regression suite, boundary rules) are mechanical and complete for this class."
+      "rationale": "Blast radius is one screen. The gates that matter (build, regression suite, boundary rules) are mechanical and complete for this class.",
+      "agent_may": {
+        "read": "the repository",
+        "modify": "the files of the change",
+        "execute": "build and the suites",
+        "merge": "on green, without a human in the path",
+        "deploy": "no, deployment is a separate decision"
+      },
+      "escalates_when": "the change carries a marker: money, tenant scope, authorisation, schema, or the test surface."
     },
     "T2": {
       "name": "Agent authors, human approves before merge",
       "human_involvement": "Named reviewer approves the PR. The reviewer reads the receipt first, the diff second.",
-      "rationale": "Mechanical gates catch the shape of the change but not its intent. A human confirms the intent was the right one."
+      "rationale": "Mechanical gates catch the shape of the change but not its intent. A human confirms the intent was the right one.",
+      "agent_may": {
+        "read": "the repository",
+        "modify": "the files of the change",
+        "execute": "build and the suites",
+        "merge": "only after a named human approves",
+        "deploy": "no"
+      }
     },
     "T3": {
       "name": "Human decides, agent implements",
       "human_involvement": "An engineer writes the approach in the ticket before any agent runs, approves the PR, and signs the named control (schema label, rollback note).",
-      "rationale": "The failure mode is silent and expensive: wrong rows, lost money, a lock held across a call. Tests can prove a change is wrong, not that it is right."
+      "rationale": "The failure mode is silent and expensive: wrong rows, lost money, a lock held across a call. Tests can prove a change is wrong, not that it is right.",
+      "agent_may": {
+        "read": "the repository",
+        "modify": "only what the approach written by an engineer describes",
+        "execute": "build and the suites",
+        "merge": "only after a named human approves and signs the named control",
+        "deploy": "no"
+      }
     },
     "T4": {
       "name": "No agent authorship",
       "human_involvement": "An engineer authors the change. The agent is allowed to read, search, summarise and draft a design note, never to produce the diff that ships.",
-      "rationale": "The change alters the rules the rest of the system relies on. Reviewing it costs more than writing it."
+      "rationale": "The change alters the rules the rest of the system relies on. Reviewing it costs more than writing it.",
+      "agent_may": {
+        "read": "the repository",
+        "modify": "nothing that ships",
+        "execute": "build and the suites, to investigate",
+        "merge": "no",
+        "deploy": "no"
+      }
     }
   },
   "classes": [
@@ -63,7 +92,10 @@
         "build",
         "architecture",
         "golden-behaviour"
-      ]
+      ],
+      "status": "exercised",
+      "status_note": "T-001 went through the full gate set as a T1.",
+      "tier_is_a_floor": true
     },
     {
       "id": "database-transactions",
@@ -106,7 +138,10 @@
         "human-approval",
         "pinning-test"
       ],
-      "mapping_note": "Stock is the second ledger of this platform and it is not kept under a folder called data. ProductService is listed by name because a path prefix cannot say 'the part of the catalogue that moves quantities'. Every policy of this kind ends up with a handful of named files; the ones here are listed rather than hidden behind a clever glob."
+      "mapping_note": "Stock is the second ledger of this platform and it is not kept under a folder called data. ProductService is listed by name because a path prefix cannot say 'the part of the catalogue that moves quantities'. Every policy of this kind ends up with a handful of named files; the ones here are listed rather than hidden behind a clever glob.",
+      "status": "exercised",
+      "status_note": "T-002 and T-004 are the worked case: an invariant, a plausible change that breaks it, a correction.",
+      "tier_is_a_floor": true
     },
     {
       "id": "performance",
@@ -139,7 +174,10 @@
         "human-approval",
         "measurement-in-receipt"
       ],
-      "detection_limit": "Performance is the class this classifier detects worst. Cache keys and indexes are visible in a diff; a query moved inside a loop is not, and materialising a list is so common that a rule on it would fire on every change and be turned off within a week. The honest fix is not a cleverer regex: it is a query counter in the test harness, so a change that turns one query into forty fails on a number instead of on a pattern. That is scoped in docs/POINTING-IT-AT-YOUR-PLATFORM.md, and it is not implemented here."
+      "detection_limit": "Performance is the class this classifier detects worst. Cache keys and indexes are visible in a diff; a query moved inside a loop is not, and materialising a list is so common that a rule on it would fire on every change and be turned off within a week. The honest fix is not a cleverer regex: it is a query counter in the test harness, so a change that turns one query into forty fails on a number instead of on a pattern. That is scoped in docs/POINTING-IT-AT-YOUR-PLATFORM.md, and it is not implemented here.",
+      "status": "proposed",
+      "status_note": "An index shipped with T-002 and no measurement was taken. The gate this class needs is a query counter, which is not built here.",
+      "tier_is_a_floor": true
     },
     {
       "id": "integrations",
@@ -175,7 +213,10 @@
         "golden-behaviour",
         "human-approval",
         "contract-test"
-      ]
+      ],
+      "status": "exercised",
+      "status_note": "T-003 went through, including the attempt the boundary rule stopped.",
+      "tier_is_a_floor": true
     },
     {
       "id": "concurrency",
@@ -210,7 +251,10 @@
         "golden-behaviour",
         "human-approval",
         "pinning-test"
-      ]
+      ],
+      "status": "proposed",
+      "status_note": "The reservation path is read then write with no transaction, and the harness does not reproduce the race. The guard narrows the damage; nothing here proves the race is closed. Reproducing it needs the real engine.",
+      "tier_is_a_floor": true
     },
     {
       "id": "legacy-architecture",
@@ -244,7 +288,10 @@
         "golden-behaviour",
         "human-approval",
         "pinning-test"
-      ]
+      ],
+      "status": "not evaluated",
+      "status_note": "No ticket in this repository touched it. The class is listed because the platform has the debt, not because the policy has been tried on it.",
+      "tier_is_a_floor": true
     },
     {
       "id": "fundamental-change",
@@ -282,7 +329,10 @@
         "golden-behaviour",
         "human-approval",
         "design-note"
-      ]
+      ],
+      "status": "not evaluated",
+      "status_note": "No ticket touched the engine or the data provider, by design.",
+      "tier_is_a_floor": true
     }
   ],
   "markers": [
@@ -372,6 +422,45 @@
         "human-approval"
       ],
       "why": "An agent that can change the tests can change what green means. Every other gate in this policy is downstream of this one, so a change that touches the control surface is never merged on a machine's word alone."
+    },
+    {
+      "id": "authorisation",
+      "title": "Permissions and access",
+      "min_tier": "T3",
+      "match": {
+        "paths": [],
+        "symbols": [
+          "IPermissionService",
+          "AuthorizeAsync",
+          "[Authorize",
+          "AllowAnonymous",
+          "StandardPermission",
+          "AccessDenied"
+        ]
+      },
+      "gates": [
+        "pinning-test"
+      ],
+      "why": "A screen is not low risk because it is a screen. A change that alters who may do something is the same class of risk as a change to the ledger, and it arrives in presentation files."
+    },
+    {
+      "id": "referee",
+      "title": "The harness itself",
+      "min_tier": "T3",
+      "match": {
+        "paths": [
+          ".github/**",
+          "harness/**",
+          "policy/**",
+          "scripts/**"
+        ],
+        "symbols": []
+      },
+      "gates": [
+        "harness-label",
+        "human-approval"
+      ],
+      "why": "The agent that runs a case does not get to edit its own referee in the same breath. Changing the rules, the tests of the rules or the workflow that runs them is a separate decision with its own label."
     }
   ],
   "gate_definitions": {
@@ -386,6 +475,24 @@
     "human-approval": "A named human approved the pull request.",
     "schema-label": "The pull request carries the human-review:schema label, applied by a human after reading the migration.",
     "rollback-note": "The receipt states what running this migration backwards costs.",
-    "design-note": "A design note exists and was approved before the diff."
+    "design-note": "A design note exists and was approved before the diff.",
+    "harness-label": "The pull request carries the harness-change label. Required for any change to the rules, their tests, or the workflow that runs them."
+  },
+  "how_the_tier_is_decided": {
+    "summary": "Technical category is a prior, not an answer. A screen is not low risk because it is a screen: a screen that changes an amount, a permission or another tenant's rows is not a T1. That is what the markers are for, and they apply whatever folder the change is in.",
+    "axes": [
+      "Impact: what is wrong in the world if this ships wrong. A rendered label, a wrong number in a ledger, another tenant's data.",
+      "Evidence: does a test exist that would fail. If the honest answer is no, the tier goes up until a human is in the path, or the ticket starts by building the evidence.",
+      "Reversibility: can this be undone by reverting the merge. A migration cannot. A payload already sent cannot.",
+      "Unknowns: anything the policy does not map, an area with no owner, a dependency nobody has read. An important unknown escalates rather than defaults."
+    ],
+    "criteria_for_an_erp": {
+      "note": "These are the questions to put to a change in a platform of this kind. They are criteria, not findings about any particular company.",
+      "transactions_and_concurrency": "Is the invariant written down. What happens if the work is interrupted half way. What happens if two of them run at once. Is the final state checked rather than the happy path. Is the application logic separated from what the database engine does, so a green suite on one engine is not read as a guarantee on another.",
+      "tenant_isolation": "Is there a negative test, with two tenants, that fails when a query forgets its scope. Do the background jobs, the caches and the exports carry the scope too, or only the request path.",
+      "migrations_and_multiple_clients": "Is the change compatible with the clients already deployed. Can it resume after a partial run. What does going backwards cost, and has anybody written that down before it runs.",
+      "accounting_and_synchronisation": "Duplicates, replays, out of order arrival, amounts, and whether the two sides can be reconciled after the fact."
+    },
+    "per_tier_permissions": "Each tier says separately what an agent may read, modify, execute, merge and deploy. Merging and deploying are never the same permission."
   }
 }

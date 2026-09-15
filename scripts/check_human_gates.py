@@ -19,9 +19,28 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from classify_change import classify  # noqa: E402
+from classify_change import classify, glob_to_regex  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def files_changed_since(base_sha: str) -> list[str]:
+    for args in ([f"{base_sha}...HEAD"], [base_sha]):
+        result = subprocess.run(
+            ["git", "diff", "--name-only", *args], cwd=ROOT, capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            return [line for line in result.stdout.splitlines() if line.strip()]
+    return []
+
+
+def referee_files_touched(changed: list[str], policy: dict) -> list[str]:
+    """Files that belong to the harness itself, rather than to the platform under it."""
+    marker = next((m for m in policy["markers"] if m["id"] == "referee"), None)
+    if marker is None:
+        return []
+    patterns = [glob_to_regex(glob) for glob in marker["match"].get("paths", [])]
+    return [path for path in changed if any(rx.match(path) for rx in patterns)]
 
 
 def tickets_touched_since(base_sha: str) -> list[Path]:
@@ -68,11 +87,34 @@ def main() -> int:
     else:
         tickets = sorted(p for p in (ROOT / "tickets").glob("*") if (p / "change.patch").is_file())
 
+    failures = []
+
+    # The trust boundary. An agent that can edit the rules, the tests of the rules or the workflow
+    # that runs them in the same pull request as its own change is not being judged by anything.
+    if args.changed_tickets_from_git:
+        referee = referee_files_touched(files_changed_since(args.changed_tickets_from_git), policy)
+        if referee:
+            wanted = enforcement.get("harness_label", "harness-change")
+            print(f"referee: this pull request changes {len(referee)} file(s) of the harness itself")
+            for path in referee[:10]:
+                print(f"  {path}")
+            if wanted in labels:
+                print(f"  ok       {wanted} is on the pull request: the change to the referee is deliberate")
+            else:
+                failures.append(
+                    f"this pull request changes the harness that judges it, and carries no {wanted} label. "
+                    "The rules, their tests and the workflow are changed on their own, by a person, "
+                    "never in the same breath as the change they are meant to judge."
+                )
+
     if not tickets:
+        if failures:
+            print("\nFAIL human gates")
+            for failure in failures:
+                print(f"  - {failure}")
+            return 1
         print("OK   no ticket touched by this pull request, no human gate owed")
         return 0
-
-    failures = []
     for ticket in tickets:
         patch = ticket / "change.patch"
         if not patch.is_file():
