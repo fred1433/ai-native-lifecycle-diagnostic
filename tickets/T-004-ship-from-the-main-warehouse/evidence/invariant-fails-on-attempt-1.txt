@@ -1,0 +1,15 @@
+The deliberately faulty attempt, run against the suite that was already there.
+Upstream 9184447 with the tickets up to T-002 applied.
+Command: dotnet test upstream/src/Tests/Nop.Tests/Nop.Tests.csproj -c Release --filter FullyQualifiedName~ProductServiceTests
+
+FAILED CommittedStockNeverExceedsHeldStock
+  Expected record.ReservedQuantity to be less than or equal to 8 because warehouse 1 cannot
+  commit units it does not hold, but found 9.
+
+FAILED ReservingMoreThanTheWarehousesHoldIsRefusedWhenBackordersAreNotAllowed
+  Expected a <Nop.Core.NopException> to be thrown, but no exception was thrown.
+
+Total tests: 21, passed 19, failed 2.
+
+Two independent assertions, both behavioural. The change compiles, satisfies the request it was
+given, and is refused because of what it does to stock, not because of how it is written.
