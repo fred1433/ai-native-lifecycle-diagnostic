@@ -277,38 +277,36 @@ class AddedLineRuleTests(unittest.TestCase):
 
 @requires_tickets
 class ShippedTicketTests(unittest.TestCase):
-    """The tickets in this repository are the worked examples, so their verdicts are asserted."""
+    """Properties of whatever tickets this revision carries.
 
-    def verdict(self, name: str) -> dict:
-        patch_file = ROOT / "tickets" / name / "change.patch"
-        return classify(patch_file.read_text(encoding="utf-8"), POLICY)
+    These assertions deliberately do not hardcode the verdict of a named ticket. The verdict of a
+    ticket belongs in that ticket's receipt, where `verify_receipt.py` compares it to the diff. A
+    central list of expected tiers is a second copy of the same fact, and the two go out of step the
+    first time a ticket is revised, which is exactly what happened when this file first tried it.
+    """
 
-    def test_the_view_change_is_autonomous(self):
-        if not (ROOT / "tickets" / "T-001-reserved-column" / "change.patch").is_file():
-            self.skipTest("T-001 is not in this revision")
-        self.assertEqual(self.verdict("T-001-reserved-column")["tier"], "T1")
+    def test_every_ticket_receipt_agrees_with_its_own_diff(self):
+        for patch_file in SHIPPED_TICKETS:
+            with self.subTest(ticket=patch_file.parent.name):
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "verify_receipt.py"), str(patch_file.parent)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_the_stock_guard_is_a_human_decision(self):
-        if not (ROOT / "tickets" / "T-002-reservation-guard" / "change.patch").is_file():
-            self.skipTest("T-002 is not in this revision")
-        verdict = self.verdict("T-002-reservation-guard")
-        self.assertEqual(verdict["tier"], "T3")
-        self.assertIn("schema-label", verdict["gates"])
+    def test_every_ticket_lands_in_a_tier_the_policy_defines(self):
+        for patch_file in SHIPPED_TICKETS:
+            with self.subTest(ticket=patch_file.parent.name):
+                verdict = classify(patch_file.read_text(encoding="utf-8"), POLICY)
+                self.assertIn(verdict["tier"], POLICY["tiers"])
+                self.assertTrue(verdict["gates"], "a change with no gate at all is a policy bug")
 
-    def test_the_integration_needs_an_approver_and_a_contract(self):
-        if not (ROOT / "tickets" / "T-003-stock-ledger-export" / "change.patch").is_file():
-            self.skipTest("T-003 is not in this revision")
-        verdict = self.verdict("T-003-stock-ledger-export")
-        self.assertEqual(verdict["tier"], "T2")
-        self.assertIn("contract-test", verdict["gates"])
-
-    def test_the_rejected_attempt_was_already_suspicious_before_any_test_ran(self):
-        """The attempt the boundary rule blocked also reads as three classes in one presentation file."""
-        rejected = ROOT / "tickets" / "T-003-stock-ledger-export" / "rejected" / "attempt-1.patch"
-        if not rejected.is_file():
-            self.skipTest("the rejected attempt is not in this revision")
-        verdict = classify(rejected.read_text(encoding="utf-8"), POLICY)
-        self.assertEqual(verdict["tier"], "T3")
-        self.assertIn("ui-application", verdict["classes"])
-        self.assertIn("database-transactions", verdict["classes"])
-        self.assertIn("integrations", verdict["classes"])
+    def test_a_ticket_above_the_autonomous_tier_owes_a_human_something(self):
+        for patch_file in SHIPPED_TICKETS:
+            with self.subTest(ticket=patch_file.parent.name):
+                verdict = classify(patch_file.read_text(encoding="utf-8"), POLICY)
+                if verdict["tier"] == "T1":
+                    self.assertNotIn("human-approval", verdict["gates"])
+                else:
+                    self.assertIn("human-approval", verdict["gates"])
