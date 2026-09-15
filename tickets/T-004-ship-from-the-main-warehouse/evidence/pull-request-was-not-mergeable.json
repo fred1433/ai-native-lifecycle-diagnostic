@@ -1,0 +1,45 @@
+{
+  "captured": "github api, gh pr view",
+  "number": 6,
+  "title": "T-004 ship from the main warehouse",
+  "url": "https://github.com/fred1433/ai-native-lifecycle-diagnostic/pull/6",
+  "state": "CLOSED",
+  "mergedAt": null,
+  "closedAt": "2026-09-15T13:24:20Z",
+  "mergeStateStatus": "BLOCKED",
+  "checks": [
+    {
+      "name": "policy",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "human gates",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "boundaries on the untouched platform",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "ticket (tickets/T-001-reserved-column)",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "ticket (tickets/T-002-reservation-guard)",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "ticket (tickets/T-003-stock-ledger-export)",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "ticket (tickets/T-004-ship-from-the-main-warehouse)",
+      "conclusion": "FAILURE"
+    },
+    {
+      "name": "gates ok",
+      "conclusion": "FAILURE"
+    }
+  ],
+  "note": "main is protected by a required check and a required review, so this pull request was not merely red: it could not be merged. It was closed without being merged and without an override."
+}

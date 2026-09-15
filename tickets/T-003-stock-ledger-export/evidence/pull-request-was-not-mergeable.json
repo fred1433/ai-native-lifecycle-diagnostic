@@ -1,0 +1,33 @@
+{
+  "captured": "github api, gh pr view",
+  "number": 3,
+  "title": "T-003 export stock movements to the accounting system",
+  "url": "https://github.com/fred1433/ai-native-lifecycle-diagnostic/pull/3",
+  "state": "CLOSED",
+  "mergedAt": null,
+  "closedAt": "2026-09-15T13:15:17Z",
+  "mergeStateStatus": "UNKNOWN",
+  "checks": [
+    {
+      "name": "policy",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "human gates",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "boundaries on the untouched platform",
+      "conclusion": "SUCCESS"
+    },
+    {
+      "name": "ticket (tickets/T-003-stock-ledger-export)",
+      "conclusion": "FAILURE"
+    },
+    {
+      "name": "gates ok",
+      "conclusion": "FAILURE"
+    }
+  ],
+  "note": "main is protected by a required check and a required review, so this pull request was not merely red: it could not be merged. It was closed without being merged and without an override."
+}
